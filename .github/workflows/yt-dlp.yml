@@ -12,12 +12,13 @@ on:
 jobs:
   download:
     runs-on: ubuntu-latest
+
     steps:
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
-          python -m pip install -U yt-dlp
+          python -m pip install -U yt-dlp google-api-python-client google-auth
 
       - name: Download video
         env:
@@ -28,6 +29,50 @@ jobs:
             --merge-output-format mp4 \
             -o "downloads/%(title).200B.%(ext)s" \
             "$VIDEO_URL"
+
+      - name: Upload to Google Drive
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import mimetypes
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+
+          info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
+
+          credentials = service_account.Credentials.from_service_account_info(
+              info,
+              scopes=["https://www.googleapis.com/auth/drive"]
+          )
+
+          drive = build("drive", "v3", credentials=credentials)
+          folder_id = os.environ["GOOGLE_DRIVE_FOLDER_ID"]
+
+          for root, dirs, files in os.walk("downloads"):
+              for filename in files:
+                  path = os.path.join(root, filename)
+                  mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+                  metadata = {
+                      "name": filename,
+                      "parents": [folder_id]
+                  }
+
+                  media = MediaFileUpload(path, mimetype=mime, resumable=True)
+
+                  result = drive.files().create(
+                      body=metadata,
+                      media_body=media,
+                      fields="id,name"
+                  ).execute()
+
+                  print("Uploaded:", result["name"])
+          PY
 
       - name: Save downloaded video
         uses: actions/upload-artifact@v4
