@@ -1,0 +1,37 @@
+
+name: YT-DLP Video Downloader
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Video URL"
+        required: true
+        type: string
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install -U yt-dlp
+
+      - name: Download video
+        env:
+          VIDEO_URL: ${{ inputs.video_url }}
+        run: |
+          mkdir -p downloads
+          yt-dlp --no-playlist \
+            --merge-output-format mp4 \
+            -o "downloads/%(title).200B.%(ext)s" \
+            "$VIDEO_URL"
+
+      - name: Save downloaded video
+        uses: actions/upload-artifact@v4
+        with:
+          name: downloaded-video
+          path: downloads/
+          if-no-files-found: error
